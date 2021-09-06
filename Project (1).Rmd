@@ -1,0 +1,579 @@
+---
+title: "A Sports Analysis on Player Market Value Estimation [FIFA 21]"
+author: "Lokesh K 18BCE1239"
+date: "4/28/2021"
+output:
+  html_document: default
+---
+
+**The objectives are**
+
+* To find the economical club
+* To predict the market value of players
+
+#### Importing the necessary libraries
+
+```{r}
+options(warn=-1)
+library(ggplot2)
+library(dplyr)
+library(plotly)
+library(tidyverse)
+library(htmlwidgets)
+library(ggcorrplot)
+library(reshape2)
+library(ggpubr)
+library(readr)
+library(forecast)
+library(fmsb)
+library(scales)
+require(maps)
+require(viridis)
+```
+
+
+#### Reading the Dataset
+
+```{r}
+dataset <- read.csv("players_21.csv")
+copy_dataset <- dataset 
+```
+
+#### Viewing the Dataset
+
+```{r}
+head(dataset)
+```
+
+***
+
+#### Structure of Dataset
+
+```{r}
+str(dataset)
+dimensions <- dim(dataset)
+paste("Rows :", dimensions[1], " Columns :", dimensions[2], sep = " ")
+```
+***
+
+#### Checking for Null Values
+
+```{r}
+summary(dataset)
+```
+***
+#### Droping Columns
+
+```{r}
+dataset <- subset(dataset, select = -c(player_url, dob, body_type, real_face, team_jersey_number, nation_jersey_number))
+copy_dataset <- dataset
+```
+
+
+#### Exploratory Analysis
+
+```{r}
+ggplot(dataset, aes(x = age)) + geom_histogram(binwidth = 1, stat = "bin", color = "black", fill = "#0066CC") + geom_vline(aes(xintercept = mean(age)), color = "#CC0000", linetype = "dashed" , size = 1) + labs(title = "Age Distribution", x = "Age Groups", y = "Frequnecy")
+
+ggplot(dataset, aes(x = age)) + geom_boxplot()
+
+```
+
+***
+**From the above histogram graph it is clearly seen that the distribution of the age groups follows a normal distribution, explaining the even distribution of age groups, with few very young and few very old players. From the boxplot we can see that the older age groups have many outliers compared to the youngsters. Also majority of the footballers fall under the age groups 25 - 30.**
+
+***
+
+```{r}
+ggplot(dataset, aes(x = overall)) + geom_histogram(binwidth = 1, stat = "bin", color = "black", fill = "#D7BDE2") + geom_vline(aes(xintercept = mean(overall)), color = "#CC0000", linetype = "dashed" , size = 1) + labs(title = "Overall Rating Distribution", x = "Rating", y = "Frequnecy")
+
+ggplot(dataset, aes(x = overall)) + geom_boxplot()
+
+
+```
+
+***
+
+**From the above histogram, we can visualize the distribution of the overall rating and it follows a normal distribution, but the boxplot shows equal number of outliers at both the tails, indicating the presence of few extremely good players and low overall players. The average overall ranges from 65 - 75.**
+
+***
+
+```{r}
+top_10_players <- dataset[c(1,2,4:7,9,11:12,14),c(2,28:33)]
+rownames(top_10_players) <- c(top_10_players$short_name)
+top_10_players <- subset(top_10_players, select = -c(short_name))
+colors <- c("#00AFBB", "#E7B800", "#FC4E07","#6C3483","#A93226","#EAF2F8","#0B5345","#2471A3","#2ECC71","#C0392B")
+titles <- c(rownames(top_10_players))
+
+
+```
+
+
+
+```{r}
+source("fun1.R")
+
+max_min <- data.frame(
+  pace = c(100, 30), shooting = c(100, 30), passing = c(100, 30),
+  dribbling = c(100, 30), defending = c(100, 30), physic = c(100, 30)
+)
+rownames(max_min) <- c("Max", "Min")
+
+colnames(max_min) <- colnames(top_10_players)
+df <- rbind(max_min, top_10_players)
+op <- par(mar = c(1, 1, 1,1))
+par(mfrow = c(2,3))
+
+for(i in 1:10){
+  create_beautiful_radarchart(
+  data = df[c(1, 2, i + 2), ], caxislabels = c(30, 47, 65, 82, 100),
+  color = colors[i], title = titles[i]
+    )
+}
+par(op)
+
+```
+
+
+***
+
+**The above graphs shows the distribution of individual attributes for the top 10 players excluding the goalkeepers. The graph shows how players strengths varies depending on their positions.**
+
+***
+
+#### Which Clubs are economical?
+
+This question is addressed to find out which clubs are more likely to spend on high quality players and be busy during a transfer market. 
+
+```{r}
+club_dataset <- dataset[dataset$club_name != "", ]
+no_Players <- table(club_dataset$club_name)
+no_Players <- data.frame(no_Players)
+head(no_Players)
+no_Players_summary <- summary(no_Players$Freq)
+no_Players_summary
+paste("Each Team has an average of", no_Players_summary[4], sep = " ")
+ggplot(no_Players, aes(x = Freq)) + geom_boxplot()
+```
+
+***
+
+#### Calculating the economic ratio for each player
+
+Here we calculate the economic ratio for each player by finding the ratio of wage/ potential indicating, how much wage a player gets per potential.
+
+```{r}
+economical_ratio <- club_dataset$wage_eur / club_dataset$potential
+club_dataset$economic_ratio <- round(economical_ratio,2)
+head(club_dataset[,c("short_name","wage_eur", "potential", "economic_ratio")])
+```
+
+***
+
+#### Grouping the economic ration for each club
+
+```{r}
+club_economical <- club_dataset[,c("club_name","economic_ratio")]
+club_economical <- aggregate(club_economical$economic_ratio, by = list(Group = club_economical$club_name), FUN = mean)
+names(club_economical)[1] <- "club_name"
+names(club_economical)[2] <- "economic_ratio"
+club_economical <- club_economical[order(-club_economical$economic_ratio), ]
+club_economical$economic_ratio <- round(club_economical$economic_ratio,2)
+head(club_economical)
+```
+
+***
+
+#### Top 10 Economical Clubs based on likely to spend
+
+```{r}
+top_10_club_economical <- club_economical[1:10, ]
+top_10_club_economical
+top_10_clubs <- top_10_club_economical$club_name
+top_10_clubs
+```
+
+***
+
+```{r}
+p <- ggplot(top_10_club_economical, aes(x = club_name, y = economic_ratio)) + geom_bar(stat = "identity", width = 0.8, fill = "#0066CC") + theme(axis.text.x = element_text(angle = 90)) + labs(title = "Clubs with the Top Economic Ratio")
+ggplotly(p)
+
+```
+
+***
+
+**From the above barplot, we can see the economic ratio, of the top 10 clubs (economic ratio wise). We can see that Real Madrid are the club most likely to spend on high quality players, followed by Barcelona and Chelsea. But the error in this data, is the inclusion of economic ratio of player bought long back.**
+
+***
+
+#### Top 10 economical clubs in recent years (last 5 years) 
+```{r}
+top_10_clubs <- filter(dataset, club_name %in% top_10_clubs)
+head(top_10_clubs)
+```
+***
+```{r}
+top_10_clubs <- subset(top_10_clubs, select = -c(height_cm, weight_kg, nationality, player_positions, preferred_foot, international_reputation, weak_foot, skill_moves, work_rate))
+top_10_clubs <- subset(top_10_clubs, select = -c(player_tags, team_position, loaned_from))
+top_10_clubs <- top_10_clubs[-c(14:87)]
+#View(top_10_clubs)
+copy_top_10_clubs <- top_10_clubs
+top_10_clubs$joined <- as.Date(top_10_clubs$joined, "%Y-%m-%d")
+top_10_clubs$joined <- as.character(format(top_10_clubs$joined,"%Y"))
+head(top_10_clubs)
+tail(top_10_clubs)
+```
+***
+
+```{r}
+transfer_expenditure <- filter(top_10_clubs, joined %in% c("2015","2016","2017","2018","2019","2020"))
+#View(transfer_expenditure)
+teconomical_ratio <- transfer_expenditure$wage_eur / transfer_expenditure$potential
+transfer_expenditure$economic_ratio <- round(teconomical_ratio,2)
+#View(transfer_expenditure)
+Transfer_club_economical <- transfer_expenditure[,c("club_name","economic_ratio")]
+Transfer_club_economical <- aggregate(Transfer_club_economical$economic_ratio, by = list(Group = Transfer_club_economical$club_name), FUN = mean)
+names(Transfer_club_economical)[1] <- "club_name"
+names(Transfer_club_economical)[2] <- "economic_ratio"
+Transfer_club_economical <- Transfer_club_economical[order(-Transfer_club_economical$economic_ratio), ]
+Transfer_club_economical$economic_ratio <- round(Transfer_club_economical$economic_ratio,2)
+Transfer_club_economical
+```
+
+***
+
+```{r}
+p <- ggplot(Transfer_club_economical, aes(x = club_name, y = economic_ratio)) + geom_bar(stat = "identity", width = 0.8, fill = "#0066CC") + theme(axis.text.x = element_text(angle = 90)) + labs(title = "Clubs with the Top Economic Ratio in last 5 years")
+ggplotly(p)
+```
+
+***
+
+**From the newly ploted economical club barplot, we can see Manchester City are the most economical club in recent years and not Real Madrid**
+
+***
+
+#### Spending view of the top 3 active clubs in recent years
+
+```{r}
+man_city <- filter(transfer_expenditure, club_name %in% c("Manchester City","Real Madrid","FC Barcelona"))
+ggplot(man_city, aes(fill = club_name, y=economic_ratio, x=joined)) + 
+    geom_bar(position="dodge",stat="identity")
+```
+
+***
+
+**This plot gives us better view and shows us that the spending of Manchester City has been declining in recent years, whereas Real Madrid have had an up and down spending. Real Madrid have had a low spending in 2017, followed by a great spending in 2018, 2019. Fc Barcelona have had a consistent spending in all years, and are more likely to be active in the market.**
+
+***
+
+```{r}
+dataset2 <- read.csv("players_17.csv")
+dataset2 <- subset(dataset2, select = c(long_name,potential,overall))
+dataset1 <- subset(dataset, select = c(long_name,potential,overall))
+```
+
+```{r}
+newdataset <- merge(dataset1,dataset2, by.x = "long_name", by.y = "long_name")
+newdataset$overalldiff <- newdataset$overall.x - newdataset$overall.y
+newdataset$potentialdiff <- newdataset$potential.x - newdataset$potential.y
+newdataset$overall_goal <- newdataset$overall.x - newdataset$potential.y
+head(newdataset)
+```
+
+***
+
+```{r}
+newdataset <- subset(newdataset, select = -c(potential.x,overall.x,potential.y,overall.y))
+names(newdataset)[2] <- "improv_overall"
+names(newdataset)[3] <- "improv_potential"
+names(newdataset)[4] <- "target_overall"
+head(newdataset)
+dataset <- merge(dataset,newdataset, by.x = "long_name", by.y = "long_name")
+dataset <- subset(dataset, select = -c(long_name))
+```
+
+***
+
+**In the above table the inclusion of the three new columns imporv_overall, imporv_potential and target_overall are the improvement in player overall, potential in the last 5 years and the last target is the difference between the overall now and potential 5 years ago,**
+
+***
+
+```{r}
+dataset <- dataset[order(-dataset$overall),]
+dataset <- subset(dataset, select = -c(height_cm, weight_kg, preferred_foot, international_reputation, weak_foot, skill_moves,loaned_from,joined,player_traits))
+fifa21 <- dataset[,-c(65:90)]
+head(fifa21)
+```
+
+***
+
+#### To predict the market value of the players.
+
+This question is addressed to predict players based on their strengths, so clubs can predict how much they need to spend and spend on the right player
+
+```{r}
+positions <- factor(fifa21$team_position)
+nlevels(positions)
+levels(positions)
+```
+```{r}
+source("fun.R")
+fifa21$team_position <- position_filter(fifa21$team_position, fifa21$player_positions)
+positions <- factor(fifa21$team_position)
+nlevels(positions)
+levels(positions)
+
+```
+
+```{r}
+fifa21$team_position[fifa21$team_position == "CAM" | fifa21$team_position == "LAM" | fifa21$team_position == "RAM" ] <- "AMF"
+fifa21$team_position[fifa21$team_position == "CDM" | fifa21$team_position == "LDM" | fifa21$team_position == "RDM" ] <- "DMF"
+fifa21$team_position[fifa21$team_position == "CM" | fifa21$team_position == "LCM" | fifa21$team_position == "RCM" ] <- "CMF"
+fifa21$team_position[fifa21$team_position == "CB" | fifa21$team_position == "LCB" | fifa21$team_position == "RCB" ] <- "FB"
+fifa21$team_position[fifa21$team_position == "CF" | fifa21$team_position == "LF" | fifa21$team_position == "RF" ] <- "FW"
+fifa21$team_position[fifa21$team_position == "LS" | fifa21$team_position == "RS"] <- "SS"
+fifa21$team_position[fifa21$team_position == "LWB"] <- "LB"
+fifa21$team_position[fifa21$team_position == "RWB"] <- "RB"
+positions <- factor(fifa21$team_position)
+nlevels(positions)
+levels(positions)
+samplefifa21 <- fifa21[fifa21$improv_overall > 0, ]
+
+
+
+```
+
+
+```{r}
+
+fifa21 <- subset(fifa21, select = -c(league_rank, player_positions, player_tags, nation_position))
+nums <- unlist(lapply(fifa21, is.numeric)) 
+corr_set <- fifa21
+corr_set <- corr_set[,nums]
+corr_set <- subset(corr_set,select = -c(sofifa_id,contract_valid_until))
+
+```
+
+```{r}
+summary(corr_set)
+```
+
+***
+
+```{r}
+#gk set
+corr_set1 <- corr_set[complete.cases(corr_set$gk_diving),]
+corr_set1 <- corr_set1[ , colSums(is.na(corr_set1)) == 0]
+
+#rest
+corr_set2 <- corr_set[complete.cases(corr_set$pace),]
+corr_set2 <- corr_set2[ , colSums(is.na(corr_set2)) == 0]
+
+cormat1 <- round(cor(corr_set1),2)
+cormat2 <- round(cor(corr_set2),2)
+```
+
+
+```{r}
+mcorr_set1 <- melt(cormat1)
+theme_set(theme_gray(base_size = 5))
+g <- ggplot(data = mcorr_set1, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_raster() + theme(axis.text.x = element_text(angle = 90)) +  scale_fill_gradient2(low="blue", high="red", guide="colorbar")
+ggplotly(g)
+
+```
+
+***
+
+**From the above matrix, we can see the critical attributes for goalkeepers, and these factors can be used to predict the market values of players.**
+
+***
+
+```{r}
+mcorr_set2 <- melt(cormat2)
+theme_set(theme_gray(base_size = 5))
+g <- ggplot(data = mcorr_set2, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_raster() + theme(axis.text.x = element_text(angle = 90)) + scale_fill_gradient2(low="blue", high="red", guide="colorbar")
+ggplotly(g)
+```
+
+***
+
+**From this above matrix, we can see the attributes affecting the non-goalkeepers. We can see the positively correlated factors for the strikers, defenders, midfielders.**
+
+***
+
+```{r} 
+
+goalkeeper <- samplefifa21[samplefifa21$team_position == "GK",]
+dim(goalkeeper)
+
+defenders <- samplefifa21[samplefifa21$team_position == "FB" | samplefifa21$team_position == "LB" |
+                          samplefifa21$team_position == "RB", ]
+dim(defenders)
+
+midfielders <- samplefifa21[samplefifa21$team_position == "CMF" | samplefifa21$team_position == "DMF" | 
+                            samplefifa21$team_position == "AMF" | samplefifa21$team_position == "RM" | 
+                              samplefifa21$team_position == "LM", ]
+dim(midfielders)
+
+forwards <- samplefifa21[samplefifa21$team_position == "FW" | samplefifa21$team_position == "LW" | 
+                         samplefifa21$team_position == "RW" | samplefifa21$team_position == "SS" | 
+                           samplefifa21$team_position == "ST", ]
+dim(forwards)
+```
+
+```{r}
+train.index = sample(seq(1,nrow(goalkeeper)), floor(0.8*nrow(goalkeeper)))
+selected.var <- c(2,3,8:11,25:30,44,46)
+
+train.t <- goalkeeper[train.index, selected.var]
+valid.t <- goalkeeper[-train.index, selected.var]
+head(valid.t)
+
+gklm = lm(value_eur ~ overall * age + gk_reflexes * movement_reactions + wage_eur + gk_diving * gk_positioning +  potential + gk_speed+ gk_handling  * gk_kicking 
+          * power_shot_power,data = train.t)
+summary(gklm)
+
+gklm.pred <- predict(gklm, valid.t)
+accuracy(gklm.pred, valid.t$value_eur)
+
+goalkeeper[goalkeeper$overall == 85 & goalkeeper$age == 30, c("short_name","value_eur")]
+
+predict(gklm,data.frame(overall = 85 ,age = 30, wage_eur = 65000, gk_diving = 84, potential = 85, gk_handling = 85, gk_kicking =82, gk_reflexes =86, gk_speed
+          =43, gk_positioning =84, movement_reactions =82, power_shot_power = 62))
+
+```
+***
+
+**In the above, model, P.Gulaici's market value is predicted**
+
+***
+
+```{r}
+train.index = sample(seq(1,nrow(defenders)), floor(0.8*nrow(defenders)))
+selected.var <- c(2,3,8:11,23,24,51,52,58,59)
+
+train.t <- defenders[train.index, selected.var]
+valid.t <- defenders[-train.index, selected.var]
+
+head(valid.t)
+
+dflm = lm(value_eur ~ overall+ age + wage_eur * potential + defending * defending_sliding_tackle + defending_standing_tackle + mentality_interceptions 
+          * mentality_aggression * physic,data = train.t)
+summary(dflm)
+dflm.pred <- predict(dflm, valid.t)
+accuracy(dflm.pred, valid.t$value_eur)
+
+defenders[defenders$overall == 86 & defenders$age == 27, c("short_name","value_eur")]
+
+predict(dflm,data.frame(overall = 86 ,age = 27, wage_eur = 230000, potential = 86, defending = 82, defending_standing_tackle =83, defending_sliding_tackle
+          = 85, mentality_aggression = 82, mentality_interceptions = 83, physic = 80))
+```
+
+***
+
+**In the above, model, R. Varane market value is predicted**
+
+***
+
+```{r}
+train.index = sample(seq(1,nrow(midfielders)), floor(0.8*nrow(midfielders)))
+selected.var <- c(2,3,8:11,21,22,34,36,40,50,53,54)
+
+train.t <- midfielders[train.index, selected.var]
+valid.t <- midfielders[-train.index, selected.var]
+
+head(valid.t)
+
+mflm = lm(value_eur ~ overall+ age + wage_eur + passing * attacking_short_passing + dribbling  * skill_dribbling + skill_ball_control 
+           + mentality_positioning * mentality_vision * power_long_shots,data = train.t)
+summary(mflm)
+mflm.pred <- predict(mflm, valid.t)
+accuracy(mflm.pred, valid.t$value_eur)
+
+midfielders[midfielders$overall == 91 & midfielders$age == 29, c("short_name","value_eur")]
+
+predict(mflm,data.frame(overall = 91 ,age = 29, wage_eur = 370000, potential = 91, passing = 93, dribbling =88, attacking_short_passing
+          = 94, skill_dribbling = 88, skill_ball_control = 93, power_long_shots = 91, mentality_positioning = 88, mentality_vision = 94))
+
+```
+
+***
+
+**In the above, model, K.De Bruyne market value is predicted**
+
+***
+
+```{r}
+train.index = sample(seq(1,nrow(forwards)), floor(0.8*nrow(forwards)))
+selected.var <- c(2,3,8:11,19:20,32,35,37,41,42,46,31)
+
+train.t <- forwards[train.index, selected.var]
+valid.t <- forwards[-train.index, selected.var]
+
+head(valid.t)
+
+flm = lm(value_eur ~ overall+ age + wage_eur + shooting * attacking_finishing * power_shot_power+ attacking_volleys  + attacking_crossing * skill_curve
+          + movement_acceleration + pace  + movement_sprint_speed   , data = train.t)
+summary(flm)
+flm.pred <- predict(flm, valid.t)
+accuracy(flm.pred, valid.t$value_eur)
+
+forwards[forwards$overall == 87 & forwards$age == 30, c("short_name","value_eur")]
+
+predict(flm,data.frame(overall = 87 ,age = 30, wage_eur = 125000, potential = 87, pace = 84, shooting = 88, attacking_finishing
+          = 93, attacking_volleys = 85, skill_curve = 70, movement_acceleration = 82, movement_sprint_speed = 85, power_shot_power = 86, 
+          attacking_crossing=55))
+
+```
+
+***
+
+**In the above, model, Immobile market value is predicted**
+
+***
+
+#### To find the best playing eleven under a given budget (100 million)
+
+To find this, we have used the classic 4-3-3 formation in football
+
+```{r}
+source("fun2.R")
+playingEleven <- best_eleven(budget = 100000000, samplefifa21)
+playingEleven
+```
+
+***
+
+```{r}
+country <- table(samplefifa21$nationality)
+country <- data.frame(country)
+head(country)
+```
+
+#### Finding the Distribution of Better Players Region wise
+
+```{r}
+
+WorldData <- map_data('world') %>% fortify
+
+player_map <- ggplot() +
+  geom_map(data = WorldData, map = WorldData,
+           aes(x = long, y = lat, group = group, map_id=region),
+           fill = "white", colour = "#7f7f7f", size=0.5) + 
+  geom_map(data = country, map=WorldData,
+           aes(fill=Freq, map_id=Var1),
+           colour="#7f7f7f", size=0.5) +
+  coord_map("rectangular", lat0=0, xlim=c(-180,180), ylim=c(-60, 90)) +
+  scale_fill_continuous(low="#E67E22", high="#1ABC9C", guide="colorbar") +
+  labs(fill="Frequency", title="Distribution of Players across the globe") +
+  theme_bw()
+
+player_map
+
+```
+
+***
